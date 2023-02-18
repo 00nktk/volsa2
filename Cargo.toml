@@ -17,6 +17,7 @@ hound = "3.5.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 bytemuck = { version = "1.13", features = ["derive"] }
+clap = { version = "4.1", features = ["derive"] }
 
 
 [features]

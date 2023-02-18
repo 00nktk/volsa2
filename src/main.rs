@@ -1,3 +1,4 @@
+mod opt;
 mod proto;
 mod seven_bit;
 mod util;
@@ -6,8 +7,9 @@ use std::ffi::CString;
 use std::fmt::Debug;
 
 use alsa::seq::{self, ClientInfo};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use bytemuck::cast_slice;
+use clap::Parser;
 use hound::{SampleFormat, WavSpec, WavWriter};
 use seven_bit::U7;
 use smallvec::SmallVec;
@@ -179,65 +181,85 @@ impl State {
 fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
+    let opts = opt::Opts::parse();
+
     let state = State::new()?;
     state.connect()?;
 
-    state.send(
-        proto::ExtendedKorgSysEx::new(0),
-        proto::SampleSpaceDumpRequest,
-    )?;
-    let (_, response) = state.receive::<proto::SampleSpaceDump>()?;
-    println!("Occupied space: {:.1}%", response.occupied() * 100.);
+    match opts.cmd {
+        opt::Operation::List { show_empty } => {
+            state.send(
+                proto::ExtendedKorgSysEx::new(0),
+                proto::SampleSpaceDumpRequest,
+            )?;
+            let (_, response) = state.receive::<proto::SampleSpaceDump>()?;
+            println!("Occupied space: {:.1}%", response.occupied() * 100.);
 
-    for i in 0..200 {
-        state.send(
-            proto::ExtendedKorgSysEx::new(0),
-            proto::SampleHeaderDumpRequest { sample_no: i },
-        )?;
-        let (_, response) = state.receive::<proto::SampleHeader>()?;
-        if !response.is_empty() {
-            println!(
-                "{i:3}: {:24} - length: {:8}, speed: {:5}, level: {:5}",
-                response.name, response.length, response.speed, response.level
-            );
+            let mut last_printed = 0;
+            for i in 0..200 {
+                state.send(
+                    proto::ExtendedKorgSysEx::new(0),
+                    proto::SampleHeaderDumpRequest { sample_no: i },
+                )?;
+                let (_, response) = state.receive::<proto::SampleHeader>()?;
+                if !response.is_empty() {
+                    if show_empty {
+                        for idx in (last_printed + 1)..response.sample_no {
+                            println!("{idx:3}: <EMPTY>");
+                        }
+                    }
+                    last_printed = response.sample_no;
+                    println!(
+                        "{i:3}: {:24} - length: {:8}, speed: {:5}, level: {:5}",
+                        response.name, response.length, response.speed, response.level
+                    );
+                }
+            }
+        }
+        opt::Operation::Download { sample_no, output } => {
+            let mut output = output.canonicalize()?;
+            state.send(
+                proto::ExtendedKorgSysEx::new(0),
+                proto::SampleHeaderDumpRequest { sample_no },
+            )?;
+            let (_, header) = state.receive::<proto::SampleHeader>()?;
+            let length = header.length;
+
+            println!(r#"Downloading sample "{}" from Volca"#, header.name);
+
+            state.send(
+                proto::ExtendedKorgSysEx::new(0),
+                proto::SampleDataDumpRequest { sample_no },
+            )?;
+            let (_, sample_data) = state.receive::<proto::SampleData>()?;
+
+            if output.is_dir() {
+                output.set_file_name(&header.name);
+                output.set_extension("wav");
+            }
+
+            let header = WavSpec {
+                channels: 1,
+                sample_rate: 31250,
+                bits_per_sample: 16,
+                sample_format: SampleFormat::Int,
+            };
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(&output)?;
+            let mut writer = WavWriter::new(file, header)?;
+            let mut writer = writer.get_i16_writer(length);
+
+            for sample in sample_data.data {
+                writer.write_sample(sample);
+            }
+            writer.flush()?;
+
+            println!("Wrote sample to {output:?}");
         }
     }
-
-    let sample_no: u8 = std::env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow!("sample no not provided"))?
-        .parse()
-        .context("parse sample no")?;
-    state.send(
-        proto::ExtendedKorgSysEx::new(0),
-        proto::SampleHeaderDumpRequest { sample_no },
-    )?;
-    let (_, response) = state.receive::<proto::SampleHeader>()?;
-    let length = response.length;
-    state.send(
-        proto::ExtendedKorgSysEx::new(0),
-        proto::SampleDataDumpRequest { sample_no },
-    )?;
-    let (_, sample_data) = state.receive::<proto::SampleData>()?;
-
-    let header = WavSpec {
-        channels: 1,
-        sample_rate: 31250,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open("./sample.wav")?;
-    let mut writer = WavWriter::new(file, header)?;
-    let mut writer = writer.get_i16_writer(length);
-
-    for sample in sample_data.data {
-        writer.write_sample(sample);
-    }
-    writer.flush()?;
 
     Ok(())
 }
