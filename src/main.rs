@@ -351,6 +351,26 @@ fn main() -> Result<()> {
             state.send_sample(header, data)?;
             println!("Loaded sample {name} in slot {sample_no}");
         }
+        opt::Operation::Remove {
+            sample_no,
+            print_name,
+        } => {
+            let name = if print_name {
+                let mut header = state.get_sample_header(sample_no)?;
+                if header.is_empty() {
+                    println!("Sample is already empty");
+                    return Ok(());
+                }
+
+                header.name.push(' ');
+                header.name
+            } else {
+                String::new()
+            };
+
+            state.delete_sample(sample_no)?;
+            println!("Removed sample {name}at slot {sample_no}");
+        }
     }
 
     Ok(())

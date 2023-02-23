@@ -52,4 +52,12 @@ pub enum Operation {
         #[arg(long, default_value = "false")]
         dry_run: bool,
     },
+    #[command(alias = "rm")]
+    Remove {
+        /// Sample slot number.
+        sample_no: u8,
+        /// Print sample name.
+        #[arg(short, long, default_value = "false")]
+        print_name: bool,
+    },
 }
