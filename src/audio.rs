@@ -4,6 +4,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use auto_enums::auto_enum;
+use bytemuck::Pod;
+use bytemuck::TransparentWrapper;
+use bytemuck::Zeroable;
 use clap::ValueEnum;
 use derive_more::Display;
 use hound::{Result as WavResult, SampleFormat, WavReader, WavSpec, WavWriter};
@@ -223,11 +226,14 @@ where
         (SampleFormat::Int, 16) => reader
             .into_samples::<i16>()
             .map(|res| res.map(IntSample::normalize_to_f64)),
-        (SampleFormat::Int, n) if n <= 32 => reader
+        (SampleFormat::Int, 24) => reader
+            .into_samples::<i32>()
+            .map(|res| res.map(I24))
+            .map(|res| res.map(IntSample::normalize_to_f64)),
+        (SampleFormat::Int, 32) => reader
             .into_samples::<i32>()
             .map(|res| res.map(IntSample::normalize_to_f64)),
         (SampleFormat::Float, 32) => reader.into_samples::<f32>().map(|res| res.map(Into::into)),
-        // (SampleFormat::Float, 64) => reader.into_samples::<f32>(),
         (format, bits) => return Err(AudioError::Format(format, bits)),
     };
 
@@ -242,6 +248,19 @@ trait IntSample: Into<f64> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Pod, Zeroable, TransparentWrapper)]
+#[repr(transparent)]
+struct I24(i32);
+impl I24 {
+    const MAX: I24 = I24((1 << 23) - 1);
+}
+
+impl From<I24> for f64 {
+    fn from(value: I24) -> Self {
+        value.0.into()
+    }
+}
+
 macro_rules! impl_int_sample {
     ($($ty:ty),*) => {$(
         impl IntSample for $ty {
@@ -249,4 +268,4 @@ macro_rules! impl_int_sample {
         }
     )*}
 }
-impl_int_sample![i8, i16, i32];
+impl_int_sample![i8, i16, i32, I24];
