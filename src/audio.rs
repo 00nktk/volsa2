@@ -68,7 +68,7 @@ pub struct AudioReader<'a, I> {
 
 impl AudioReader<'_, ()> {
     #[auto_enum]
-    pub fn open_file(path: &Path) -> Result<AudioReader<impl Iterator<Item = AudioItem>>> {
+    pub fn open_file(path: &Path) -> Result<AudioReader<'_, impl Iterator<Item = AudioItem>>> {
         let reader = WavReader::open(path)?;
         let spec = reader.spec();
         let duration = reader.duration();

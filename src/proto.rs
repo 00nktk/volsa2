@@ -41,8 +41,6 @@ pub const EOX: u8 = 0xF7;
 pub const KORG_ID: u8 = 0x42;
 pub const VOLCA_SAMPLE_2_ID: [u8; 4] = hex!("2D 01 08 00");
 
-pub const ANY_CHANNEL: u8 = 0x7F;
-
 #[derive(Debug, Display, Clone, Copy)]
 #[display(fmt = "{}.{}", "self.0", "self.1")]
 pub struct Version(u16, u16);
@@ -176,16 +174,6 @@ impl ExtendedKorgSysEx {
     const SUFFIX: [u8; 3] = hex!("00 01 2D");
 
     const HEADER_TEMPLATE: [u8; 6] = hex!("F0 42 30 00 01 2D"); // TODO: concat
-
-    pub fn new(global_channel: u8) -> Self {
-        Self { global_channel }
-    }
-
-    pub fn any_channel() -> Self {
-        Self {
-            global_channel: ANY_CHANNEL,
-        }
-    }
 }
 
 impl Header for ExtendedKorgSysEx {

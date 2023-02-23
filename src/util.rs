@@ -43,17 +43,3 @@ impl fmt::Debug for Hex {
 pub fn hexbuf(slice: &[u8]) -> &[Hex] {
     cast_slice(slice)
 }
-
-#[derive(Clone, Copy, Pod, Zeroable)]
-#[repr(transparent)]
-pub struct Bin(u8);
-
-impl fmt::Debug for Bin {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{:08b}", self.0))
-    }
-}
-
-pub fn binbuf(slice: &[u8]) -> &[Bin] {
-    cast_slice(slice)
-}
