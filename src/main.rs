@@ -1,21 +1,26 @@
+mod audio;
 mod opt;
 mod proto;
 mod seven_bit;
 mod util;
 
+use std::any::type_name;
+use std::borrow::Cow;
 use std::ffi::CString;
 use std::fmt::Debug;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use alsa::seq::{self, ClientInfo};
-use anyhow::{anyhow, Result};
-use bytemuck::cast_slice;
+use anyhow::{anyhow, bail, Result};
 use clap::Parser;
-use hound::{SampleFormat, WavSpec, WavWriter};
 use seven_bit::U7;
 use smallvec::SmallVec;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
-use crate::util::{binbuf, hexbuf, Bin, Hex};
+use crate::audio::{write_sample_to_file, AudioReader, MonoMode};
+use crate::util::{hexbuf, DEBUG_TRESHOLD};
 
 const SELF_NAME: &str = "VolSa2";
 
@@ -43,10 +48,11 @@ struct State {
     seq: seq::Seq,
     me: seq::Addr,
     volca: seq::Addr,
+    chunk_cooldown: Duration,
 }
 
 impl State {
-    fn new() -> Result<Self> {
+    fn new(chunk_cooldown: Duration) -> Result<Self> {
         let seq = seq::Seq::open(None, None, false)?;
         seq.set_client_name(&CString::new(SELF_NAME)?)?;
         let mut me = seq::PortInfo::empty()?;
@@ -61,16 +67,18 @@ impl State {
         );
         me.set_type(seq::PortType::MIDI_GENERIC | seq::PortType::APPLICATION | seq::PortType::PORT);
         me.set_name(&CString::new(SELF_NAME)?);
-        seq.set_client_pool_output(1024)?;
-        seq.set_client_pool_output_room(1024)?;
-        seq.set_client_pool_input(10240)?;
 
         seq.create_port(&me)?;
 
         let volca = find_volca(&seq)?;
         let me = me.addr();
 
-        Ok(Self { me, seq, volca })
+        Ok(Self {
+            me,
+            seq,
+            volca,
+            chunk_cooldown,
+        })
     }
 
     fn connect(&self) -> Result<()> {
@@ -99,23 +107,31 @@ impl State {
         let mut buf = SmallVec::<[u8; 6]>::new();
         msg.encode(header, &mut buf)?;
 
-        let mut event = seq::Event::new_ext(seq::EventType::Sysex, buf.as_slice());
+        if buf.len() > DEBUG_TRESHOLD {
+            debug!(msg = type_name::<T>(), len = buf.len(), "send msg");
+            trace!(?msg, raw = ?hexbuf(&buf), len = buf.len(), "send msg");
+        } else {
+            debug!(?msg, len = buf.len(), "send msg");
+        }
 
-        debug!(?msg, raw = ?hexbuf(&buf), len = buf.len(), "send");
-        trace!(bin = ?binbuf(&buf), "send");
+        for slice in buf.chunks(256) {
+            let mut event = seq::Event::new_ext(seq::EventType::Sysex, slice);
 
-        // event.set_source(self.me.port);
-        event.set_direct();
-        event.set_dest(self.volca);
-        // event.set_priority(true); // ?: Do I need this?
-        // event.set_subs();
-        // event.schedule_tick(253, true, 1);
-        // event.schedule_real(253, true, Duration::from_secs(1));
+            trace!(len = slice.len(), raw = ?hexbuf(slice), "send chunk");
 
-        self.seq.event_output_direct(&mut event)?;
+            event.set_source(self.me.port);
+            event.set_direct();
+            event.set_priority(true);
+            event.set_dest(self.volca);
 
-        // self.seq.sync_output_queue()?;
-        // self.seq.drain_output()?;
+            self.seq.event_output_direct(&mut event)?;
+            if !slice.ends_with(&[proto::EOX]) && !self.chunk_cooldown.is_zero() {
+                std::thread::sleep(self.chunk_cooldown);
+            }
+        }
+        self.seq.sync_output_queue()?;
+        self.seq.drain_output()?;
+
         Ok(())
     }
 
@@ -146,6 +162,7 @@ impl State {
         let mut data = event
             .get_ext()
             .ok_or_else(|| anyhow!("SysEx without data"))?;
+        trace!(raw = ?hexbuf(data), len = data.len(), "recv fst chunk");
 
         #[allow(unused_assignments)]
         // TODO: Fix this
@@ -162,6 +179,7 @@ impl State {
                 let new_data = event
                     .get_ext()
                     .ok_or_else(|| anyhow!("SysEx without data"))?;
+                trace!(raw = ?hexbuf(new_data), len = new_data.len(), "recv chunk");
                 owned_data
                     .as_mut()
                     .expect("replaced earlier")
@@ -172,9 +190,63 @@ impl State {
 
         let data = &data;
         let msg = T::parse(data).map_err(Into::into);
-        debug!(?msg, raw = ?cast_slice::<_, Hex>(data), len = data.len(), "recv");
-        trace!(binary = ?cast_slice::<_, Bin>(data), "recv");
+        if data.len() > DEBUG_TRESHOLD {
+            debug!(msg = type_name::<T>(), len = data.len(), "recv msg");
+            trace!(?msg, raw = ?hexbuf(data), "recv_msg");
+        } else {
+            debug!(?msg, raw = ?hexbuf(data), len = data.len(), "recv_msg");
+        }
         msg
+    }
+
+    fn get_sample_header(&self, sample_no: u8) -> Result<proto::SampleHeader> {
+        // TODO: restrict this in type
+        if sample_no > 199 {
+            bail!("sample_no must be less than 200");
+        }
+
+        self.send(
+            proto::ExtendedKorgSysEx::new(0),
+            proto::SampleHeaderDumpRequest { sample_no },
+        )?;
+        let (_, header) = self.receive::<proto::SampleHeader>()?;
+        Ok(header)
+    }
+
+    fn get_sample(&self, sample_no: u8) -> Result<proto::SampleData> {
+        // TODO: restrict this in type
+        if sample_no > 199 {
+            bail!("sample_no must be less than 200");
+        }
+
+        self.send(
+            proto::ExtendedKorgSysEx::new(0),
+            proto::SampleDataDumpRequest { sample_no },
+        )?;
+        let (_, sample_data) = self.receive::<proto::SampleData>()?;
+        Ok(sample_data)
+    }
+
+    fn delete_sample(&self, sample_no: u8) -> Result<()> {
+        // TODO: restrict this in type
+        if sample_no > 199 {
+            bail!("sample_no must be less than 200");
+        }
+
+        self.send(
+            proto::ExtendedKorgSysEx::new(0),
+            proto::SampleHeader::empty(sample_no),
+        )?;
+        self.receive::<proto::Status>()?.1?;
+        Ok(())
+    }
+
+    fn send_sample(&self, header: proto::SampleHeader, data: proto::SampleData) -> Result<()> {
+        self.send(proto::ExtendedKorgSysEx::new(0), header)?;
+        self.receive::<proto::Status>()?.1?;
+        self.send(proto::ExtendedKorgSysEx::new(0), data)?;
+        self.receive::<proto::Status>()?.1?;
+        Ok(())
     }
 }
 
@@ -183,7 +255,7 @@ fn main() -> Result<()> {
 
     let opts = opt::Opts::parse();
 
-    let state = State::new()?;
+    let state = State::new(opts.chunk_cooldown.into())?;
     state.connect()?;
 
     match opts.cmd {
@@ -217,49 +289,106 @@ fn main() -> Result<()> {
             }
         }
         opt::Operation::Download { sample_no, output } => {
-            let mut output = output.canonicalize()?;
-            state.send(
-                proto::ExtendedKorgSysEx::new(0),
-                proto::SampleHeaderDumpRequest { sample_no },
-            )?;
-            let (_, header) = state.receive::<proto::SampleHeader>()?;
-            let length = header.length;
-
+            let header = state.get_sample_header(sample_no)?;
             println!(r#"Downloading sample "{}" from Volca"#, header.name);
+            let sample_data = state.get_sample(sample_no)?;
 
-            state.send(
-                proto::ExtendedKorgSysEx::new(0),
-                proto::SampleDataDumpRequest { sample_no },
-            )?;
-            let (_, sample_data) = state.receive::<proto::SampleData>()?;
-
-            if output.is_dir() {
-                output.set_file_name(&header.name);
-                output.set_extension("wav");
-            }
-
-            let header = WavSpec {
-                channels: 1,
-                sample_rate: 31250,
-                bits_per_sample: 16,
-                sample_format: SampleFormat::Int,
-            };
-            let file = std::fs::OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .create(true)
-                .open(&output)?;
-            let mut writer = WavWriter::new(file, header)?;
-            let mut writer = writer.get_i16_writer(length);
-
-            for sample in sample_data.data {
-                writer.write_sample(sample);
-            }
-            writer.flush()?;
-
+            let output = normalize_path(&output, &header.name);
+            write_sample_to_file(&sample_data.data, &output)?;
             println!("Wrote sample to {output:?}");
+        }
+        opt::Operation::Upload {
+            sample_no,
+            file,
+            mono_mode,
+            output,
+            dry_run,
+        } => {
+            let name = extract_file_name(&file)?;
+            let reader = AudioReader::open_file(&file)?;
+            let sample = match (reader.channels(), mono_mode) {
+                (1, _) | (_, MonoMode::Left) => reader.take_channel(0).resample_to_volca()?,
+                (_, MonoMode::Right) => reader.take_channel(1).resample_to_volca()?,
+                (_, MonoMode::Mid) => reader.take_mid().resample_to_volca()?,
+                (_, MonoMode::Side) => reader.take_side().resample_to_volca()?,
+            };
+
+            if let Some(output) = output {
+                let output = normalize_path(&output, &name);
+                if let Err(error) = write_sample_to_file(&sample, &output) {
+                    warn!(%error, path = ?output, "could not save sample");
+                } else {
+                    println!("Saved processed sample to {output:?}");
+                }
+            }
+            if dry_run {
+                return Ok(());
+            }
+
+            let current_header = state.get_sample_header(sample_no)?;
+            if !current_header.is_empty() {
+                // TODO: format_args?
+                let question = format!(
+                    "Sample slot is not empty (current - {}). Do you want to overwrite?",
+                    current_header.name
+                );
+                if !ask(&question)? {
+                    bail!("sample slot is not empty");
+                }
+
+                if ask(&format!(
+                    "Do you want to backup the loaded sample ({})?",
+                    current_header.name
+                ))? {
+                    let sample = state.get_sample(sample_no)?;
+                    let path = format!("./{}.wav", current_header.name);
+                    write_sample_to_file(&sample.data, path.as_ref())?;
+                    println!("Wrote backup to {path}");
+                }
+            }
+
+            let (header, data) = proto::SampleData::new(sample_no, &name, sample);
+            state.send_sample(header, data)?;
+            println!("Loaded sample {name} in slot {sample_no}");
         }
     }
 
     Ok(())
+}
+
+fn extract_file_name(path: &Path) -> Result<Cow<'_, str>> {
+    if !path.is_file() {
+        bail!("path must point to a file: {path:?}")
+    }
+
+    path.file_stem()
+        .map(|name| name.to_string_lossy())
+        .ok_or_else(|| anyhow!("could not extract filename"))
+}
+
+fn ask(question: &str) -> io::Result<bool> {
+    use io::Write;
+
+    let mut buf = String::new();
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    loop {
+        print!("{question} [Y/N]: ");
+        stdout.lock().flush()?;
+        stdin.read_line(&mut buf)?;
+        match buf.as_str() {
+            "Y\n" | "y\n" => return Ok(true),
+            "N\n" | "n\n" => return Ok(false),
+            _ => buf.clear(),
+        }
+    }
+}
+
+fn normalize_path(path: &Path, filename: &str) -> PathBuf {
+    let mut path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if path.is_dir() {
+        path.set_file_name(filename);
+        path.set_extension("wav");
+    }
+    path
 }

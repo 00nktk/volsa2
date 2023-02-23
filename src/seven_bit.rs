@@ -1,8 +1,10 @@
+use bytemuck::{Pod, TransparentWrapper, Zeroable};
 use derive_more::{Display, Into};
 
 use crate::util::Array;
 
-#[derive(Clone, Copy, Debug, Display, Default, Into)] // ?: Maybe protected Into
+#[derive(Clone, Copy, Debug, Display, Default, Into, Pod, Zeroable, TransparentWrapper)] // ?: Maybe protected Into
+#[repr(transparent)]
 pub struct U7(u8);
 
 impl U7 {

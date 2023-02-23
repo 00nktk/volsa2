@@ -2,11 +2,19 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use crate::audio::MonoMode;
+
 #[derive(Parser)]
 /// Korg Volca Sample CLI.
 pub struct Opts {
     #[command(subcommand)]
     pub cmd: Operation,
+    /// Interval duration to wait before sending a new chunk.
+    ///
+    /// Volca Sample 2 can hang when receiving long messages (SampleDataDump specifically).
+    /// We introduce a "cooldown" for sending a chunk to avoid this.
+    #[arg(short, long, default_value = "10ms")]
+    pub chunk_cooldown: humantime::Duration,
 }
 
 #[derive(Subcommand)]
@@ -26,5 +34,22 @@ pub enum Operation {
         /// Output path. Sample name will be used if provided path points to directory.
         #[arg(short, long, default_value = "./")]
         output: PathBuf,
+    },
+    /// Load sample into the device.
+    #[command(alias = "up")]
+    Upload {
+        /// Path to audio file to upload.
+        file: PathBuf,
+        /// Sample slot number.
+        sample_no: u8,
+        /// Mono convertion mode.
+        #[arg(short, long, value_enum, default_value_t = MonoMode::Mid)]
+        mono_mode: MonoMode,
+        /// Converted audio output path (optional).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Do not upload the sample after convertion.
+        #[arg(long, default_value = "false")]
+        dry_run: bool,
     },
 }

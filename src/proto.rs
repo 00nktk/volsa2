@@ -3,12 +3,15 @@ use std::mem;
 use std::string::FromUtf8Error;
 
 use arrayref::{array_ref, array_refs};
+use bytemuck::cast_slice;
 use derive_more::Display;
 use hex_literal::hex;
 use thiserror::Error;
 
 use crate::seven_bit::FromKorgData;
+use crate::seven_bit::IntoKorgData;
 use crate::seven_bit::U7ToU8;
+use crate::seven_bit::U8ToU7;
 use crate::seven_bit::U7;
 use crate::util;
 use crate::util::array_type_refs;
@@ -262,7 +265,7 @@ impl Incoming for SearchDeviceReply {
 
 pub const ACK_STATUS: u8 = 0x23;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Copy)]
 pub enum NakStatus {
     #[error("device is busy")]
     Busy = 0x24,
@@ -380,10 +383,23 @@ pub struct SampleHeader {
 }
 
 impl SampleHeader {
+    const DATA_SIZE_7BIT: usize = 37;
     const NAME_LEN: usize = 24;
+    const DEFAULT_SPEED: u16 = 16384;
+    const DEFAULT_LEVEL: u16 = 65535;
 
     pub fn is_empty(&self) -> bool {
         self.name.is_empty() && self.length == 0 && self.level == 0 && self.speed == 0
+    }
+
+    pub fn empty(sample_no: u8) -> Self {
+        Self {
+            sample_no,
+            name: String::new(),
+            length: 0,
+            level: 0,
+            speed: 0,
+        }
     }
 }
 
@@ -430,6 +446,27 @@ impl Incoming for SampleHeader {
     }
 }
 
+impl Outgoing for SampleHeader {
+    fn encode_data(&self, mut dest: impl io::Write) -> io::Result<()> {
+        write_u8(&mut dest, self.sample_no)?;
+        let mut buf = [U7::new(0); Self::DATA_SIZE_7BIT];
+
+        let name_padding = Self::NAME_LEN - self.name.len();
+        let raw_data = self
+            .name
+            .bytes()
+            .chain(std::iter::repeat(0).take(name_padding))
+            .chain(self.length.to_le_bytes())
+            .chain(self.level.to_le_bytes())
+            .chain(self.speed.to_le_bytes());
+        IntoKorgData::new(raw_data)
+            .enumerate()
+            .for_each(|(idx, byte)| buf[idx] = byte);
+
+        dest.write_all(cast_slice(&buf))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SampleDataDumpRequest {
     pub sample_no: u8,
@@ -453,6 +490,23 @@ impl Outgoing for SampleDataDumpRequest {
 pub struct SampleData {
     pub sample_no: u8,
     pub data: Vec<i16>,
+}
+
+impl SampleData {
+    pub fn new(sample_no: u8, name: &str, data: Vec<i16>) -> (SampleHeader, SampleData) {
+        let name_len = name.len().min(SampleHeader::NAME_LEN);
+        let name = name[..name_len].to_string();
+        let header = SampleHeader {
+            sample_no,
+            name,
+            length: data.len() as u32,
+            level: SampleHeader::DEFAULT_LEVEL,
+            speed: SampleHeader::DEFAULT_SPEED,
+        };
+        let data = SampleData { sample_no, data };
+
+        (header, data)
+    }
 }
 
 impl Message for SampleData {
@@ -481,6 +535,19 @@ impl Incoming for SampleData {
             sample_no,
             data: buf,
         })
+    }
+}
+
+impl Outgoing for SampleData {
+    fn encode_data(&self, mut dest: impl io::Write) -> io::Result<()> {
+        write_u8(&mut dest, self.sample_no)?;
+
+        let buf_len = U8ToU7::convert_len(self.data.len() * 2);
+        let mut buf = Vec::with_capacity(buf_len);
+        let bytes_u8 = self.data.iter().copied().flat_map(i16::to_le_bytes);
+        let bytes_u7 = IntoKorgData::new(bytes_u8);
+        buf.extend(bytes_u7);
+        dest.write_all(cast_slice(&buf))
     }
 }
 

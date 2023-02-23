@@ -3,6 +3,8 @@ use std::ops;
 
 use bytemuck::{cast_slice, Pod, Zeroable};
 
+pub const DEBUG_TRESHOLD: usize = 16;
+
 /// Helper trait for using arrays in trait bounds and associated types
 pub trait Array: // TODO: Seal?
     AsRef<[Self::ArrayItem]>
