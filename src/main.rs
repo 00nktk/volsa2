@@ -199,6 +199,17 @@ impl State {
         msg
     }
 
+    fn list_sample_headers(&self) -> impl Iterator<Item = Result<proto::SampleHeader>> + '_ {
+        (0..200).map(|idx| {
+            self.send(
+                proto::ExtendedKorgSysEx::new(0),
+                proto::SampleHeaderDumpRequest { sample_no: idx },
+            )?;
+            let (_, response) = self.receive::<proto::SampleHeader>()?;
+            Ok(response)
+        })
+    }
+
     fn get_sample_header(&self, sample_no: u8) -> Result<proto::SampleHeader> {
         // TODO: restrict this in type
         if sample_no > 199 {
@@ -268,24 +279,21 @@ fn main() -> Result<()> {
             println!("Occupied space: {:.1}%", response.occupied() * 100.);
 
             let mut last_printed = 0;
-            for i in 0..200 {
-                state.send(
-                    proto::ExtendedKorgSysEx::new(0),
-                    proto::SampleHeaderDumpRequest { sample_no: i },
-                )?;
-                let (_, response) = state.receive::<proto::SampleHeader>()?;
-                if !response.is_empty() {
-                    if show_empty {
-                        for idx in (last_printed + 1)..response.sample_no {
-                            println!("{idx:3}: <EMPTY>");
-                        }
+            for header in state
+                .list_sample_headers()
+                .filter(|res| res.as_ref().map_or(true, |header| !header.is_empty()))
+            {
+                let header = header?;
+                if show_empty {
+                    for idx in (last_printed + 1)..header.sample_no {
+                        println!("{idx:3}: <EMPTY>");
                     }
-                    last_printed = response.sample_no;
-                    println!(
-                        "{i:3}: {:24} - length: {:8}, speed: {:5}, level: {:5}",
-                        response.name, response.length, response.speed, response.level
-                    );
                 }
+                last_printed = header.sample_no;
+                println!(
+                    "{:3}: {:24} - length: {:8}, speed: {:5}, level: {:5}",
+                    header.sample_no, header.name, header.length, header.speed, header.level
+                );
             }
         }
         opt::Operation::Download { sample_no, output } => {
@@ -324,6 +332,17 @@ fn main() -> Result<()> {
             if dry_run {
                 return Ok(());
             }
+
+            let sample_no = sample_no
+                .map(Ok)
+                .or_else(|| {
+                    state.list_sample_headers().find_map(|result| {
+                        result
+                            .map(|header| header.is_empty().then_some(header.sample_no))
+                            .transpose()
+                    })
+                })
+                .ok_or_else(|| anyhow!("could not find empty slot"))??;
 
             let current_header = state.get_sample_header(sample_no)?;
             if !current_header.is_empty() {

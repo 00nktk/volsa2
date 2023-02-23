@@ -40,12 +40,12 @@ pub enum Operation {
     Upload {
         /// Path to audio file to upload.
         file: PathBuf,
-        /// Sample slot number.
-        sample_no: u8,
+        /// Sample slot number. Will choose first empty slot if not provided.
+        sample_no: Option<u8>,
         /// Mono convertion mode.
         #[arg(short, long, value_enum, default_value_t = MonoMode::Mid)]
         mono_mode: MonoMode,
-        /// Converted audio output path (optional).
+        /// Converted audio output path.
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Do not upload the sample after convertion.
