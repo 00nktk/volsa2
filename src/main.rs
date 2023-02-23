@@ -264,11 +264,16 @@ fn main() -> Result<()> {
 
     let opts = opt::Opts::parse();
 
-    let mut state = State::new(opts.chunk_cooldown.into())?;
-    state.connect()?;
+    let init_state = || -> Result<State> {
+        let mut state = State::new(opts.chunk_cooldown.into())?;
+        state.connect()?;
+        Ok(state)
+    };
 
     match opts.cmd {
         opt::Operation::List { show_empty } => {
+            let state = init_state()?;
+
             state.send(proto::SampleSpaceDumpRequest)?;
             let (_, response) = state.receive::<proto::SampleSpaceDump>()?;
             println!("Occupied space: {:.1}%", response.occupied() * 100.);
@@ -292,6 +297,8 @@ fn main() -> Result<()> {
             }
         }
         opt::Operation::Download { sample_no, output } => {
+            let state = init_state()?;
+
             let header = state.get_sample_header(sample_no)?;
             println!(r#"Downloading sample "{}" from Volca"#, header.name);
             let sample_data = state.get_sample(sample_no)?;
@@ -328,6 +335,7 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
+            let state = init_state()?;
             let sample_no = sample_no
                 .map(Ok)
                 .or_else(|| {
@@ -369,6 +377,7 @@ fn main() -> Result<()> {
             sample_no,
             print_name,
         } => {
+            let state = init_state()?;
             let name = if print_name {
                 let mut header = state.get_sample_header(sample_no)?;
                 if header.is_empty() {
