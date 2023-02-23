@@ -31,7 +31,7 @@ pub enum Operation {
     Download {
         /// Sample ID as shown in the device "sample" menu or in the output of List command.
         sample_no: u8, // TODO: bound this
-        /// Output path. Sample name will be used if provided path points to directory.
+        /// Output path. Sample name will be used if the provided path points to a directory.
         #[arg(short, long, default_value = "./")]
         output: PathBuf,
     },
@@ -52,6 +52,7 @@ pub enum Operation {
         #[arg(long, default_value = "false")]
         dry_run: bool,
     },
+    /// Erase sample from device memory
     #[command(alias = "rm")]
     Remove {
         /// Sample slot number.

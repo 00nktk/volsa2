@@ -74,6 +74,8 @@ pub trait Header: Sized {
         Self::parse(header).map(|this| (this, data))
     }
     fn encode(self) -> Self::Array;
+
+    fn from_channel(channel: U7) -> Self;
 }
 
 pub trait Message: Sized {
@@ -156,6 +158,10 @@ impl Header for KorgSysEx {
     fn encode(self) -> Self::Array {
         Self::HEADER
     }
+
+    fn from_channel(_: U7) -> Self {
+        Self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +213,12 @@ impl Header for ExtendedKorgSysEx {
         output[2] = Self::CHANNEL_PREFIX | self.global_channel;
         output
     }
+
+    fn from_channel(channel: U7) -> Self {
+        Self {
+            global_channel: channel.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -253,7 +265,7 @@ impl Incoming for SearchDeviceReply {
                 received: model_id.to_vec().into_boxed_slice(),
             });
         }
-        let version = Version(u16::from_be_bytes(*major), u16::from_be_bytes(*minor));
+        let version = Version(u16::from_le_bytes(*major), u16::from_le_bytes(*minor));
 
         Ok(Self {
             device_id: U7::new_checked(channel[0]).ok_or(ParseError::InvalidData)?,

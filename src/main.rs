@@ -15,9 +15,10 @@ use std::time::Duration;
 use alsa::seq::{self, ClientInfo};
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
+use proto::Header;
 use seven_bit::U7;
 use smallvec::SmallVec;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::audio::{write_sample_to_file, AudioReader, MonoMode};
 use crate::util::{hexbuf, DEBUG_TRESHOLD};
@@ -29,6 +30,7 @@ fn find_volca(seq: &seq::Seq) -> Result<seq::Addr> {
 
     let client: ClientInfo = clients
         .find(|client| {
+            trace!(?client, "trying client");
             client
                 .get_name()
                 .ok()
@@ -48,6 +50,7 @@ struct State {
     seq: seq::Seq,
     me: seq::Addr,
     volca: seq::Addr,
+    channel: U7,
     chunk_cooldown: Duration,
 }
 
@@ -77,11 +80,12 @@ impl State {
             me,
             seq,
             volca,
+            channel: U7::new(0),
             chunk_cooldown,
         })
     }
 
-    fn connect(&self) -> Result<()> {
+    fn connect(&mut self) -> Result<()> {
         let sub = seq::PortSubscribe::empty()?;
         sub.set_sender(self.volca);
         sub.set_dest(self.me);
@@ -93,18 +97,24 @@ impl State {
         self.seq.subscribe_port(&sub)?;
 
         let echo = U7::new(42);
-        self.send(proto::KorgSysEx, proto::SearchDeviceRequest { echo })?;
+        self.send(proto::SearchDeviceRequest { echo })?;
 
-        let _response = self.receive::<proto::SearchDeviceReply>()?;
+        let (_, response) = self.receive::<proto::SearchDeviceReply>()?;
+        info!(
+            global_channel = %response.device_id, version = %response.version,
+            "connected to volca sample 2"
+        );
+        self.channel = response.device_id;
         Ok(())
     }
 
-    fn send<T>(&self, header: T::Header, msg: T) -> Result<()>
+    fn send<T>(&self, msg: T) -> Result<()>
     where
         T: proto::Outgoing + Debug,
         T::Header: Debug,
     {
         let mut buf = SmallVec::<[u8; 6]>::new();
+        let header = T::Header::from_channel(self.channel);
         msg.encode(header, &mut buf)?;
 
         if buf.len() > DEBUG_TRESHOLD {
@@ -201,10 +211,7 @@ impl State {
 
     fn list_sample_headers(&self) -> impl Iterator<Item = Result<proto::SampleHeader>> + '_ {
         (0..200).map(|idx| {
-            self.send(
-                proto::ExtendedKorgSysEx::new(0),
-                proto::SampleHeaderDumpRequest { sample_no: idx },
-            )?;
+            self.send(proto::SampleHeaderDumpRequest { sample_no: idx })?;
             let (_, response) = self.receive::<proto::SampleHeader>()?;
             Ok(response)
         })
@@ -216,10 +223,7 @@ impl State {
             bail!("sample_no must be less than 200");
         }
 
-        self.send(
-            proto::ExtendedKorgSysEx::new(0),
-            proto::SampleHeaderDumpRequest { sample_no },
-        )?;
+        self.send(proto::SampleHeaderDumpRequest { sample_no })?;
         let (_, header) = self.receive::<proto::SampleHeader>()?;
         Ok(header)
     }
@@ -230,10 +234,7 @@ impl State {
             bail!("sample_no must be less than 200");
         }
 
-        self.send(
-            proto::ExtendedKorgSysEx::new(0),
-            proto::SampleDataDumpRequest { sample_no },
-        )?;
+        self.send(proto::SampleDataDumpRequest { sample_no })?;
         let (_, sample_data) = self.receive::<proto::SampleData>()?;
         Ok(sample_data)
     }
@@ -244,18 +245,15 @@ impl State {
             bail!("sample_no must be less than 200");
         }
 
-        self.send(
-            proto::ExtendedKorgSysEx::new(0),
-            proto::SampleHeader::empty(sample_no),
-        )?;
+        self.send(proto::SampleHeader::empty(sample_no))?;
         self.receive::<proto::Status>()?.1?;
         Ok(())
     }
 
     fn send_sample(&self, header: proto::SampleHeader, data: proto::SampleData) -> Result<()> {
-        self.send(proto::ExtendedKorgSysEx::new(0), header)?;
+        self.send(header)?;
         self.receive::<proto::Status>()?.1?;
-        self.send(proto::ExtendedKorgSysEx::new(0), data)?;
+        self.send(data)?;
         self.receive::<proto::Status>()?.1?;
         Ok(())
     }
@@ -266,15 +264,12 @@ fn main() -> Result<()> {
 
     let opts = opt::Opts::parse();
 
-    let state = State::new(opts.chunk_cooldown.into())?;
+    let mut state = State::new(opts.chunk_cooldown.into())?;
     state.connect()?;
 
     match opts.cmd {
         opt::Operation::List { show_empty } => {
-            state.send(
-                proto::ExtendedKorgSysEx::new(0),
-                proto::SampleSpaceDumpRequest,
-            )?;
+            state.send(proto::SampleSpaceDumpRequest)?;
             let (_, response) = state.receive::<proto::SampleSpaceDump>()?;
             println!("Occupied space: {:.1}%", response.occupied() * 100.);
 
