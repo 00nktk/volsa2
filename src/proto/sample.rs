@@ -276,3 +276,100 @@ impl Outgoing for SampleData {
         dest.write_all(cast_slice(&buf))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs::File;
+    use std::io::Read;
+
+    use hound::WavReader;
+
+    use super::*;
+
+    fn test_template(idx: usize) {
+        let expected = WavReader::open(format!("test_data/sample{idx}.wav.raw"))
+            .unwrap()
+            .into_samples::<i16>()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        let data_dump = File::open(format!("test_data/sample_data_dump{idx}.raw"))
+            .unwrap()
+            .bytes()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let sample_data = SampleData::parse(&data_dump).unwrap().1;
+
+        assert_eq!(sample_data.data, expected);
+    }
+
+    #[test]
+    fn test_sample_1() {
+        test_template(1)
+    }
+
+    #[test]
+    fn test_sample_2() {
+        test_template(2)
+    }
+
+    #[test]
+    fn test_sample_3() {
+        test_template(3)
+    }
+
+    #[test]
+    fn test_sample_4() {
+        test_template(4)
+    }
+
+    #[test]
+    fn test_sample_5() {
+        test_template(5)
+    }
+
+    #[test]
+    fn test_sample_6() {
+        test_template(6)
+    }
+
+    #[test]
+    fn test_sample_7() {
+        test_template(7)
+    }
+
+    #[test]
+    fn test_sample_8() {
+        test_template(8)
+    }
+
+    #[test]
+    fn test_sample_9() {
+        test_template(9)
+    }
+
+    #[test]
+    fn test_sample_10() {
+        test_template(10)
+    }
+
+    #[test]
+    fn test_sample_11() {
+        test_template(11)
+    }
+
+    #[test]
+    fn test_sample_12() {
+        test_template(12)
+    }
+
+    #[test]
+    fn test_sample_13() {
+        test_template(13)
+    }
+
+    #[test]
+    fn test_sample_14() {
+        test_template(14)
+    }
+}
