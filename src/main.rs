@@ -147,7 +147,7 @@ impl App {
     }
 
     fn save_sample(data: &[i16], path: &Path, name: &str, sample_type: &str) -> Result<()> {
-        let output = normalize_path(path, name);
+        let output = normalize_path(path, name)?;
         write_sample_to_file(data, &output)?;
         let space = if sample_type.is_empty() { "" } else { " " };
         println!("Wrote {sample_type}{space}sample to {output:?}");

@@ -76,11 +76,11 @@ pub fn ask(question: &str) -> io::Result<bool> {
     }
 }
 
-pub fn normalize_path(path: &Path, filename: &str) -> PathBuf {
-    let mut path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+pub fn normalize_path(path: &Path, filename: &str) -> Result<PathBuf> {
+    let mut path = path.canonicalize()?;
     if path.is_dir() {
-        path.set_file_name(filename);
+        path.push(filename);
         path.set_extension("wav");
     }
-    path
+    Ok(path)
 }
