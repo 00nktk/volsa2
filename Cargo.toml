@@ -1,25 +1,36 @@
 [package]
-name = "smpl2"
+name = "volsa2-cli"
+description = "Command line tool to manage samples on KORG Volca Sample 2 over ALSA"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+categories = ["command-line-utilities", "multimedia::audio", "multimedia::encode"]
+keywords = ["volca", "sampler", "librarian"]
+repository = "https://github.com/00nktk/volsa2"
+readme = "README.md"
+
+exclude = ["test_data", "proptest-regressions"]
 
 [dependencies]
 alsa = "0.7.0"
+
 anyhow = "1"
+arrayref = "0.3.6"
+auto_enums = "0.8.0"
 derive_more = "0.99"
 hex-literal = "0.3.4"
-smallvec = { version = "1.10", features = ["write"] }
 thiserror = "1"
-arrayref = "0.3.6"
-static_assertions = "1.1.0"
+
 hound = "3.5.0"
+rubato = { version = "0.12.0", features = ["log"] }
+
+bytemuck = { version = "1.13", features = ["derive"] }
+smallvec = { version = "1.10", features = ["write"] }
+
+clap = { version = "4.1", features = ["derive"] }
+humantime = "2.1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-humantime = "2.1.0"
-bytemuck = { version = "1.13", features = ["derive"] }
-clap = { version = "4.1", features = ["derive"] }
-rubato = { version = "0.12.0", features = ["log"] }
-auto_enums = "0.8.0"
 
 [dev-dependencies]
 proptest = "1.1.0"

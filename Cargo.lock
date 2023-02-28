@@ -639,35 +639,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
 
 [[package]]
-name = "smpl2"
-version = "0.1.0"
-dependencies = [
- "alsa",
- "anyhow",
- "arrayref",
- "auto_enums",
- "bytemuck",
- "clap",
- "derive_more",
- "hex-literal",
- "hound",
- "humantime",
- "proptest",
- "rubato",
- "smallvec",
- "static_assertions",
- "thiserror",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "static_assertions"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
 name = "strength_reduce"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -833,6 +804,28 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+
+[[package]]
+name = "volsa2-cli"
+version = "0.1.0"
+dependencies = [
+ "alsa",
+ "anyhow",
+ "arrayref",
+ "auto_enums",
+ "bytemuck",
+ "clap",
+ "derive_more",
+ "hex-literal",
+ "hound",
+ "humantime",
+ "proptest",
+ "rubato",
+ "smallvec",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "wait-timeout"
