@@ -4,6 +4,8 @@ Volsa 2 is a simple command line sample manager for KORG **Vol**ca **Sa**mple **
 
 *This project is in early alpha stage. Use it at your own risk.*
 
+There is also an Electron-based GUI available at [Turbnok/volsa2gui](https://github.com/Turbnok/volsa2gui).
+
 ## Installation
 
 To build and install volsa2-cli you need alsa-lib and Rust 1.64.0 or higher. The most convenient
