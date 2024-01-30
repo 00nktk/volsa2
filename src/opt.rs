@@ -26,6 +26,13 @@ pub enum Operation {
         #[arg(short = 'a', long, default_value = "false")]
         show_empty: bool,
     },
+    /// Save the sample memory layout to a YAML file
+    #[command(alias = "lay")]
+    Layout {
+        /// Output path
+        #[arg(short, long, default_value = "./layout.yaml")]
+        output: PathBuf,
+    },
     /// Download a sample from the device.
     #[command(alias = "dl")]
     Download {

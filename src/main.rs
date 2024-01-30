@@ -4,9 +4,11 @@ mod opt;
 mod proto;
 mod seven_bit;
 mod util;
+mod domain;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::fs;
 
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
@@ -14,6 +16,7 @@ use clap::Parser;
 use crate::audio::{write_sample_to_file, AudioReader, MonoMode};
 use crate::device::Device;
 use crate::util::{ask, extract_file_name, normalize_path};
+use crate::domain::SampleMemoryBackup;
 
 struct App {
     chunk_cooldown: Duration,
@@ -64,6 +67,27 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn get_sample_memory_backup(&mut self) -> Result<SampleMemoryBackup> {
+        let volca = self.volca()?;
+
+        let mut backup = SampleMemoryBackup::new();
+
+        for header in volca
+            .iter_sample_headers()
+            .filter(|res| res.as_ref().map_or(true, |header| !header.is_empty()))
+        {
+            let header = header?;
+            backup.slots[header.sample_no as usize] = Some(header.name);
+        }
+
+        Ok(backup)
+    }
+
+    fn download_sample_memory_layout(&mut self, output: PathBuf) -> Result<()> {
+        let backup = self.get_sample_memory_backup()?;
+        Self::save_sample_memory_yaml(backup, output)
     }
 
     fn download_sample(&mut self, sample_no: u8, output: PathBuf, sample_type: &str) -> Result<()> {
@@ -146,6 +170,16 @@ impl App {
         Ok(sample)
     }
 
+    fn save_sample_memory_yaml(backup: SampleMemoryBackup, output: PathBuf) -> Result<()> {
+        let f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&output)?;
+        serde_yaml::to_writer(f, &backup)?;
+        
+        Ok(())
+    }
+
     fn save_sample(data: &[i16], path: &Path, name: &str, sample_type: &str) -> Result<()> {
         let output = normalize_path(path, name)?;
         write_sample_to_file(data, &output)?;
@@ -164,6 +198,7 @@ fn main() -> Result<()> {
 
     match opts.cmd {
         opt::Operation::List { show_empty } => app.list_samples(show_empty)?,
+        opt::Operation::Layout { output } => app.download_sample_memory_layout(output)?,
         opt::Operation::Download { sample_no, output } => {
             app.download_sample(sample_no, output, "")?
         }
@@ -192,3 +227,5 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+
