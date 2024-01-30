@@ -6,13 +6,13 @@ use serde::de::{Deserialize, Deserializer, Visitor, MapAccess};
 extern crate serde_yaml;
 
 pub struct SampleMemoryBackup {
-    pub sample_memory: [Option<String>; 200],
+    pub slots: [Option<String>; 200],
 }
 
 impl SampleMemoryBackup {
     const EMPTY_SAMPLE: Option<String> = Option::None;
     
-    pub fn new() -> Self { Self { sample_memory: [Self::EMPTY_SAMPLE; 200] } }
+    pub fn new() -> Self { Self { slots: [Self::EMPTY_SAMPLE; 200] } }
 }
 
 impl Serialize for SampleMemoryBackup 
@@ -21,10 +21,10 @@ impl Serialize for SampleMemoryBackup
     where
         S: Serializer
     {
-        let mut map = serializer.serialize_map(Some(self.sample_memory.len()))?;
-        for i in 0..self.sample_memory.len() {
-            if self.sample_memory[i].is_some() {
-                map.serialize_entry(&i, &self.sample_memory[i])?;
+        let mut map = serializer.serialize_map(Some(self.slots.len()))?;
+        for i in 0..self.slots.len() {
+            if self.slots[i].is_some() {
+                map.serialize_entry(&i, &self.slots[i])?;
             }
         }
         map.end()
@@ -61,7 +61,7 @@ impl<'de> Visitor<'de> for SampleMemoryBackupVisitor
         // While there are entries remaining in the input, add them
         // into our map.
         while let Some((key, value)) = access.next_entry::<usize,String>()? {
-            backup.sample_memory[key] = Some(value);
+            backup.slots[key] = Some(value);
         }
 
         Ok(backup)
@@ -90,8 +90,8 @@ mod tests {
     #[test]
     fn serialize_samples_backup() {
         let mut samples_backup = SampleMemoryBackup::new();
-        samples_backup.sample_memory[0] = Some(String::from("Hello1")); 
-        samples_backup.sample_memory[2] = Some(String::from("Hello3"));
+        samples_backup.slots[0] = Some(String::from("Hello1")); 
+        samples_backup.slots[2] = Some(String::from("Hello3"));
 
         let s = serde_yaml::to_string(&samples_backup).unwrap();
         assert_eq!(EXPECTED_YAML, s);
@@ -101,11 +101,11 @@ mod tests {
     fn deserialize_samples_backup() {
         let samples_backup: SampleMemoryBackup = serde_yaml::from_str(EXPECTED_YAML).unwrap();
 
-        assert_eq!("Hello1", samples_backup.sample_memory[0].as_ref().unwrap());
-        assert_eq!(None, samples_backup.sample_memory[1]);
-        assert_eq!("Hello3", samples_backup.sample_memory[2].as_ref().unwrap());
+        assert_eq!("Hello1", samples_backup.slots[0].as_ref().unwrap());
+        assert_eq!(None, samples_backup.slots[1]);
+        assert_eq!("Hello3", samples_backup.slots[2].as_ref().unwrap());
         for i in 3..200 {
-            assert_eq!(None, samples_backup.sample_memory[i]);
+            assert_eq!(None, samples_backup.slots[i]);
         }
     }
 }
