@@ -102,6 +102,7 @@ impl App {
 
     fn backup_samples(&mut self, output: PathBuf, sample_type: &str) -> Result<()> {
         let backup = self.get_sample_memory_backup()?;
+        fs::create_dir_all(&output)?;
 
         let volca = self.volca()?;
 
