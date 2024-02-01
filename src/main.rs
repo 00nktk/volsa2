@@ -16,7 +16,7 @@ use clap::Parser;
 use crate::audio::{write_sample_to_file, AudioReader, MonoMode};
 use crate::device::Device;
 use crate::util::{ask, extract_file_name, normalize_path};
-use crate::domain::SampleMemoryBackup;
+use crate::domain::BackupData;
 
 struct App {
     chunk_cooldown: Duration,
@@ -69,17 +69,17 @@ impl App {
         Ok(())
     }
 
-    fn get_sample_memory_backup(&mut self) -> Result<SampleMemoryBackup> {
+    fn get_sample_memory_backup(&mut self) -> Result<BackupData> {
         let volca = self.volca()?;
 
-        let mut backup = SampleMemoryBackup::new();
+        let mut backup = BackupData::new();
 
         for header in volca
             .iter_sample_headers()
             .filter(|res| res.as_ref().map_or(true, |header| !header.is_empty()))
         {
             let header = header?;
-            backup.slots[header.sample_no as usize] = Some(header.name);
+            backup.sample_slots[header.sample_no as usize] = Some(header.name);
         }
 
         Ok(backup)
@@ -105,8 +105,8 @@ impl App {
 
         let volca = self.volca()?;
 
-        for i in 0..backup.slots.len() {
-            match &backup.slots[i] {
+        for i in 0..backup.sample_slots.len() {
+            match &backup.sample_slots[i] {
                 Some(slot) => {
                     println!(r#"Downloading sample "{}" from Volca"#, slot);
                     let sample_data = volca.get_sample(i as u8)?;
@@ -190,7 +190,7 @@ impl App {
         Ok(sample)
     }
 
-    fn save_sample_memory_yaml(backup: SampleMemoryBackup, output: PathBuf) -> Result<()> {
+    fn save_sample_memory_yaml(backup: BackupData, output: PathBuf) -> Result<()> {
         let f = fs::OpenOptions::new()
             .write(true)
             .create(true)

@@ -31,7 +31,7 @@ clap = { version = "4.1", features = ["derive"] }
 humantime = "2.1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-serde = "1.0.196"
+serde = { version = "1.0.196", features = ["derive"] }
 serde_yaml = "0.9.31"
 
 [dev-dependencies]
