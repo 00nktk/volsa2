@@ -100,6 +100,26 @@ impl App {
         Self::save_sample(&sample_data.data, &output, &header.name, sample_type)
     }
 
+    fn backup_samples(&mut self, output: PathBuf, sample_type: &str) -> Result<()> {
+        let backup = self.get_sample_memory_backup()?;
+
+        let volca = self.volca()?;
+
+        for i in 0..backup.slots.len() {
+            match &backup.slots[i] {
+                Some(slot) => {
+                    println!(r#"Downloading sample "{}" from Volca"#, slot);
+                    let sample_data = volca.get_sample(i as u8)?;
+                    Self::save_sample(&sample_data.data, &output, &format!("{slot}.wav"), &sample_type)?;
+                },
+                None => {},
+            }
+        }
+
+        let layout_filename = normalize_path(&output, "layout", "yaml")?;
+        Self::save_sample_memory_yaml(backup, layout_filename)
+    }
+
     fn upload_sample(&mut self, sample_no: Option<u8>, name: &str, data: Vec<i16>) -> Result<()> {
         let volca = self.volca()?;
         let sample_no = sample_no
@@ -181,7 +201,7 @@ impl App {
     }
 
     fn save_sample(data: &[i16], path: &Path, name: &str, sample_type: &str) -> Result<()> {
-        let output = normalize_path(path, name)?;
+        let output = normalize_path(path, name, "wav")?;
         write_sample_to_file(data, &output)?;
         let space = if sample_type.is_empty() { "" } else { " " };
         println!("Wrote {sample_type}{space}sample to {output:?}");
@@ -199,6 +219,7 @@ fn main() -> Result<()> {
     match opts.cmd {
         opt::Operation::List { show_empty } => app.list_samples(show_empty)?,
         opt::Operation::Layout { output } => app.download_sample_memory_layout(output)?,
+        opt::Operation::Backup { output } => app.backup_samples(output, "")?,
         opt::Operation::Download { sample_no, output } => {
             app.download_sample(sample_no, output, "")?
         }

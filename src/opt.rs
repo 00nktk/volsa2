@@ -30,7 +30,12 @@ pub enum Operation {
     #[command(alias = "lay")]
     Layout {
         /// Output path
-        #[arg(short, long, default_value = "./layout.yaml")]
+        output: PathBuf,
+    },
+    /// Backup entire sample memory to a given folder
+    #[command(alias = "bk")]
+    Backup {
+        /// Output folder path
         output: PathBuf,
     },
     /// Download a sample from the device.
