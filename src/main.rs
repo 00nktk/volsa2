@@ -172,7 +172,7 @@ impl App {
 		let name = if print_name {
 			let mut header = volca.get_sample_header(sample_no)?;
 			if header.is_empty() {
-				println!("Sample is already empty");
+				println!("Sample {sample_no} is already empty");
 				return Ok(());
 			}
 
