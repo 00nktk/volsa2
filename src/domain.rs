@@ -1,5 +1,5 @@
-mod sample_slots;
 mod backup;
+mod sample_slots;
 
-pub use sample_slots::SampleSlots;
 pub use backup::BackupData;
+pub use sample_slots::SampleSlots;
