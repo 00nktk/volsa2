@@ -231,15 +231,15 @@ impl App {
 		Ok(backup)
 	}
 
-	fn download_sample_memory_layout(
+	fn download_backup_data(
 		&mut self,
 		output: PathBuf,
 	) -> Result<()> {
 		let backup = self.get_sample_memory_backup()?;
-		Self::save_sample_memory_yaml(backup, output)
+		Self::save_backup_data(backup, output)
 	}
 
-	fn save_sample_memory_yaml(
+	fn save_backup_data(
 		backup: BackupData,
 		output: PathBuf,
 	) -> Result<()> {
@@ -252,7 +252,7 @@ impl App {
 		Ok(())
 	}
 
-	fn load_sample_memory_yaml(input: &PathBuf) -> Result<BackupData> {
+	fn load_backup_data(input: &PathBuf) -> Result<BackupData> {
 		// check extension to enforce yaml format
 		let ext = match input.extension() {
 			Some(ffi_str) => ffi_str.to_str().unwrap_or(""),
@@ -272,7 +272,7 @@ impl App {
 		Ok(backup)
 	}
 
-	fn backup_samples(
+	fn backup(
 		&mut self,
 		output: PathBuf,
 		sample_type: &str,
@@ -299,10 +299,10 @@ impl App {
 		}
 
 		let layout_filename = normalize_path(&output, "layout", "yaml")?;
-		Self::save_sample_memory_yaml(backup, layout_filename)
+		Self::save_backup_data(backup, layout_filename)
 	}
 
-	fn restore_samples(
+	fn restore(
 		&mut self,
 		backup_data_path: PathBuf,
 		dry_run: bool,
@@ -315,7 +315,7 @@ impl App {
             }
         }
 
-		let backup = Self::load_sample_memory_yaml(&backup_data_path)?;
+		let backup = Self::load_backup_data(&backup_data_path)?;
 
 		let parent_folder = backup_data_path.parent().unwrap();
 
@@ -380,11 +380,11 @@ fn main() -> Result<()> {
 			print_name,
 		} => app.delete_sample(sample_no, print_name)?,
 		opt::Operation::Layout { output } => {
-			app.download_sample_memory_layout(output)?
+			app.download_backup_data(output)?
 		}
-		opt::Operation::Backup { output } => app.backup_samples(output, "")?,
+		opt::Operation::Backup { output } => app.backup(output, "")?,
 		opt::Operation::Restore { input, dry_run } => {
-			app.restore_samples(input, dry_run)?
+			app.restore(input, dry_run)?
 		}
 	}
 
