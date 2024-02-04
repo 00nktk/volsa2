@@ -61,4 +61,25 @@ pub enum Operation {
         #[arg(short, long, default_value = "false")]
         print_name: bool,
     },
+    /// Save the sample memory layout to a YAML file
+    #[command(alias = "lay")]
+    Layout {
+        /// Output path
+        output: PathBuf,
+    },
+    /// Backup entire sample memory to a given folder
+    #[command(alias = "bk")]
+    Backup {
+        /// Output folder path
+        output: PathBuf,
+    },
+    /// Restore entire sample memory from a given yaml
+    #[command(alias = "rs")]
+    Restore {
+        /// Input yaml path
+        input: PathBuf,
+        /// Do no upload the sample, just test
+        #[arg(short = 'd', long, default_value = "false")]
+        dry_run: bool,
+    },
 }
