@@ -164,7 +164,7 @@ impl App {
         };
 
         volca.delete_sample(sample_no)?;
-        println!("Removed sample {name}at slot {sample_no}");
+        println!("Removed sample {name} at slot {sample_no}");
         Ok(())
     }
 
