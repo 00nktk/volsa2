@@ -71,6 +71,23 @@ Creates a folder at `<backup-directory-path>` if one doesn't already exist, and 
 ```sh 
 volsa2-cli restore <input-yaml-path>
 ```
-Reads the backup data in the yaml file at `<input-yaml-path>`, and attempts to restore the Volca Sample 2 to the state specified in this yaml file. This means it will clear slots that are not specified in the yaml, and upload the samples that are specified. This expects the samples to be placed in the same directory as the yaml file.
+Reads the backup data in the yaml file at `<input-yaml-path>`, and attempts to restore the Volca Sample 2 to the state specified in this yaml file. This means it will clear slots that are not specified in the yaml, and upload the samples that are specified. This expects the samples to be placed in the same directory as the yaml file, and to be named the same as specified in the yaml file but with a `.wav` extension.
+
+For example, your yaml file might look like this:
+```yaml
+sample_slots:
+    0: bd909
+    1: bd808
+    2: bd707
+```
+and your directory may look like this:
+```
+sample_backup/
+|-bd909.wav
+|-bd808.wav 
+|-bd707.wav
+```
+When restored, all sample slots on the Volca Sample 2 will be cleared except for the first three which will contain the three `bdx0x.wav` samples.
+
 ##### Options:
 - `--dry-run` - Check the behaviour without actually modifying anything on the device
