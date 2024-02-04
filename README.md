@@ -75,6 +75,7 @@ Reads the backup data in the yaml file at `<input-yaml-path>`, and attempts to r
 
 For example, your yaml file might look like this:
 ```yaml
+# layout.yaml
 sample_slots:
     0: bd909
     1: bd808
@@ -86,6 +87,7 @@ sample_backup/
 |-bd909.wav
 |-bd808.wav 
 |-bd707.wav
+|-layout.yaml
 ```
 When restored, all sample slots on the Volca Sample 2 will be cleared except for the first three which will contain the three `bdx0x.wav` samples.
 
