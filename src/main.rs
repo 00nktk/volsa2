@@ -1,10 +1,12 @@
 mod audio;
 mod device;
+mod domain;
 mod opt;
 mod proto;
 mod seven_bit;
 mod util;
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -13,6 +15,7 @@ use clap::Parser;
 
 use crate::audio::{write_sample_to_file, AudioReader, MonoMode};
 use crate::device::Device;
+use crate::domain::BackupData;
 use crate::util::{ask, extract_file_name, normalize_path};
 
 struct App {
@@ -76,7 +79,13 @@ impl App {
         Self::save_sample(&sample_data.data, &output, &header.name, sample_type)
     }
 
-    fn upload_sample(&mut self, sample_no: Option<u8>, name: &str, data: Vec<i16>) -> Result<()> {
+    fn upload_sample(
+        &mut self,
+        sample_no: Option<u8>,
+        name: &str,
+        data: Vec<i16>,
+        check_overwrite: bool,
+    ) -> Result<()> {
         let volca = self.volca()?;
         let sample_no = sample_no
             .map(Ok)
@@ -90,7 +99,7 @@ impl App {
             .ok_or_else(|| anyhow!("could not find empty slot"))??;
 
         let current_header = volca.get_sample_header(sample_no)?;
-        if !current_header.is_empty() {
+        if !current_header.is_empty() && check_overwrite {
             // TODO: format_args?
             let question = format!(
                 "Sample slot is not empty (current - {}). Do you want to overwrite?",
@@ -115,12 +124,36 @@ impl App {
         Ok(())
     }
 
+    fn upload_sample_from_file(
+        &mut self,
+        input: PathBuf,
+        sample_no: Option<u8>,
+        mono_mode: MonoMode,
+        output: Option<PathBuf>,
+        dry_run: bool,
+        name: Option<&str>,
+        check_overwrite: bool,
+    ) -> Result<()> {
+        let file_name = extract_file_name(&input)?;
+        let name = name.unwrap_or(&file_name);
+        let sample = Self::load_audio_file(&input, mono_mode)?;
+        output
+            .map(|path| Self::save_sample(&sample, &path, &name, "processed"))
+            .transpose()?;
+
+        if !dry_run {
+            self.upload_sample(sample_no, &name, sample, check_overwrite)?;
+        }
+
+        Ok(())
+    }
+
     fn delete_sample(&mut self, sample_no: u8, print_name: bool) -> Result<()> {
         let volca = self.volca()?;
         let name = if print_name {
             let mut header = volca.get_sample_header(sample_no)?;
             if header.is_empty() {
-                println!("Sample is already empty");
+                println!("Sample {sample_no} is already empty");
                 return Ok(());
             }
 
@@ -131,7 +164,7 @@ impl App {
         };
 
         volca.delete_sample(sample_no)?;
-        println!("Removed sample {name}at slot {sample_no}");
+        println!("Removed sample {name} at slot {sample_no}");
         Ok(())
     }
 
@@ -147,12 +180,133 @@ impl App {
     }
 
     fn save_sample(data: &[i16], path: &Path, name: &str, sample_type: &str) -> Result<()> {
-        let output = normalize_path(path, name)?;
+        let output = normalize_path(path, name, "wav")?;
         write_sample_to_file(data, &output)?;
         let space = if sample_type.is_empty() { "" } else { " " };
         println!("Wrote {sample_type}{space}sample to {output:?}");
 
         Ok(())
+    }
+
+    fn get_sample_memory_backup(&mut self) -> Result<BackupData> {
+        let volca = self.volca()?;
+
+        let mut backup = BackupData::new();
+
+        for header in volca
+            .iter_sample_headers()
+            .filter(|res| res.as_ref().map_or(true, |header| !header.is_empty()))
+        {
+            let header = header?;
+            backup.sample_slots[header.sample_no as usize] = Some(header.name);
+        }
+
+        Ok(backup)
+    }
+
+    fn download_backup_data(&mut self, output: PathBuf) -> Result<()> {
+        let backup = self.get_sample_memory_backup()?;
+        Self::save_backup_data(backup, output)
+    }
+
+    fn save_backup_data(backup: BackupData, output: PathBuf) -> Result<()> {
+        let f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&output)?;
+        serde_yaml::to_writer(f, &backup)?;
+
+        Ok(())
+    }
+
+    fn load_backup_data(input: &PathBuf) -> Result<BackupData> {
+        // check extension to enforce yaml format
+        let ext = match input.extension() {
+            Some(ffi_str) => ffi_str.to_str().unwrap_or(""),
+            None => "",
+        };
+
+        if ext != "yaml" {
+            return Err(anyhow!(
+                "Volsa2 currently only supports volca backups in Yaml format, \
+                 input path was {ext}"
+            ));
+        }
+
+        let f = fs::OpenOptions::new().read(true).open(&input)?;
+        let backup: BackupData = serde_yaml::from_reader(f)?;
+
+        Ok(backup)
+    }
+
+    fn backup(&mut self, output: PathBuf, sample_type: &str) -> Result<()> {
+        let backup = self.get_sample_memory_backup()?;
+        fs::create_dir_all(&output)?;
+
+        let volca = self.volca()?;
+
+        for i in 0..backup.sample_slots.len() {
+            match &backup.sample_slots[i] {
+                Some(slot) => {
+                    println!(r#"Downloading sample "{}" from Volca"#, slot);
+                    let sample_data = volca.get_sample(i as u8)?;
+                    Self::save_sample(
+                        &sample_data.data,
+                        &output,
+                        &format!("{slot}.wav"),
+                        &sample_type,
+                    )?;
+                }
+                None => {}
+            }
+        }
+
+        let layout_filename = normalize_path(&output, "layout", "yaml")?;
+        Self::save_backup_data(backup, layout_filename)
+    }
+
+    fn restore(&mut self, backup_data_path: PathBuf, dry_run: bool) -> Result<()> {
+        if !dry_run {
+            let question = "This will replace all samples on the device. Are you sure?";
+
+            if !ask(&question)? {
+                bail!("Restore cancelled");
+            }
+        }
+
+        let backup = Self::load_backup_data(&backup_data_path)?;
+
+        let parent_folder = backup_data_path.parent().unwrap();
+
+        for i in 0..backup.sample_slots.len() {
+            match &backup.sample_slots[i] {
+                Some(sample_name) => {
+                    if dry_run {
+                        println!("{i:03} - {sample_name}");
+                    }
+
+                    let file_name = normalize_path(parent_folder, sample_name.as_str(), "wav")?;
+                    self.upload_sample_from_file(
+                        file_name,
+                        Some(i as u8),
+                        MonoMode::Mid,
+                        None,
+                        dry_run,
+                        Some(sample_name.as_str()),
+                        false, // already checked this for the restore operation
+                    )?;
+                }
+                None => {
+                    if dry_run {
+                        println!("{i:03} - EMPTY");
+                    } else {
+                        self.delete_sample(i as u8, true)?;
+                    }
+                }
+            }
+        }
+
+        return Ok(());
     }
 }
 
@@ -174,20 +328,15 @@ fn main() -> Result<()> {
             output,
             dry_run,
         } => {
-            let name = extract_file_name(&file)?;
-            let sample = App::load_audio_file(&file, mono_mode)?;
-            output
-                .map(|path| App::save_sample(&sample, &path, &name, "processed"))
-                .transpose()?;
-
-            if !dry_run {
-                app.upload_sample(sample_no, &name, sample)?;
-            }
+            app.upload_sample_from_file(file, sample_no, mono_mode, output, dry_run, None, true)?
         }
         opt::Operation::Remove {
             sample_no,
             print_name,
         } => app.delete_sample(sample_no, print_name)?,
+        opt::Operation::Layout { output } => app.download_backup_data(output)?,
+        opt::Operation::Backup { output } => app.backup(output, "")?,
+        opt::Operation::Restore { input, dry_run } => app.restore(input, dry_run)?,
     }
 
     Ok(())

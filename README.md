@@ -60,3 +60,36 @@ Volsa2 will offer you to backup the sample if the desired slot is occupied.
 volsa2-cli remove <sample-no>
 ```
 Erases sample at slot `<sample-no>` from the device memory. Use `-p`/`--print-name` if you want to print the name of the sample.
+
+### Backup (`bk`)
+```sh 
+volsa2-cli backup <backup-directory-path>
+```
+Creates a folder at `<backup-directory-path>` if one doesn't already exist, and dumps all samples from the Volca Sample 2 into it. Creates a file called layout.yaml in the folder that specifies which samples are to be inserted into which sample slots.
+
+### Restore (`rs`)
+```sh 
+volsa2-cli restore <input-yaml-path>
+```
+Reads the backup data in the yaml file at `<input-yaml-path>`, and attempts to restore the Volca Sample 2 to the state specified in this yaml file. This means it will clear slots that are not specified in the yaml, and upload the samples that are specified. This expects the samples to be placed in the same directory as the yaml file, and to be named the same as specified in the yaml file but with a `.wav` extension.
+
+For example, your yaml file might look like this:
+```yaml
+# layout.yaml
+sample_slots:
+    0: bd909
+    1: bd808
+    2: bd707
+```
+and your directory may look like this:
+```
+sample_backup/
+|-bd909.wav
+|-bd808.wav 
+|-bd707.wav
+|-layout.yaml
+```
+When restored, all sample slots on the Volca Sample 2 will be cleared except for the first three which will contain the three `bdx0x.wav` samples.
+
+##### Options:
+- `--dry-run` - Check the behaviour without actually modifying anything on the device
